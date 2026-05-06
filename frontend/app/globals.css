@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #f5f7f9;
+  --fg: #0e141b;
+  --card: rgba(255, 255, 255, 0.7);
+  --accent: #1f7a6d;
+  --accent-strong: #d9742c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  color: var(--fg);
+  background: radial-gradient(
+      600px circle at 10% -10%,
+      #f7efe5 10%,
+      transparent 60%
+    ),
+    radial-gradient(500px circle at 90% -10%, #dce9e6 0%, transparent 55%),
+    var(--bg);
+  font-family: var(--font-sans), system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  background: rgba(31, 122, 109, 0.2);
+}
+
+@layer utilities {
+  .fade-up {
+    animation: fade-up 0.45s ease both;
+  }
+
+  .float-slow {
+    animation: float-slow 10s ease-in-out infinite;
+  }
+
+  .float-delay {
+    animation-delay: -3s;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes float-slow {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(14px);
+  }
+}
