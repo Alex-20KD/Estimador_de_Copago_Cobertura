@@ -11,6 +11,10 @@ const systemPrompt = [
 ].join(" ");
 
 async function mapSymptomToSpecialty(symptom) {
+  // --- BYPASS TEMPORAL POR ERROR 429 ---
+  // Borra esto cuando tengas una API Key con saldo
+  if (symptom) return "oftalmologia"; 
+  // -------------------------------------
   if (!process.env.OPENAI_API_KEY) {
     const err = new Error("OPENAI_API_KEY is not set");
     err.status = 500;
