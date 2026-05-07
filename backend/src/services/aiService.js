@@ -1,78 +1,77 @@
-const OpenAI = require("openai");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-const systemPrompt = [
-  "You map patient symptoms to a medical specialty.",
-  "Return only JSON via the provided function call.",
-  "Use Spanish specialty names in lowercase."
-].join(" ");
+const systemPrompt = `
+  Eres un asistente médico experto. 
+  Tu tarea es mapear los síntomas del paciente a una especialidad médica.
+  Debes responder ÚNICAMENTE con un objeto JSON con el formato: {"specialty": "nombre_especialidad"}
+  Usa nombres de especialidades en español, minúsculas y sin tildes.
+`;
 
-async function mapSymptomToSpecialty(symptom) {
-  // --- BYPASS TEMPORAL POR ERROR 429 ---
-  // Borra esto cuando tengas una API Key con saldo
-  if (symptom) return "oftalmologia"; 
-  // -------------------------------------
-  if (!process.env.OPENAI_API_KEY) {
-    const err = new Error("OPENAI_API_KEY is not set");
-    err.status = 500;
-    throw err;
-  }
+// Función de debug sugerida por tu agente
+async function debugListModels(apiVersion = "v1beta") {
+  const key = process.env.GEMINI_API_KEY;
+  const url = `https://generativelanguage.googleapis.com/${apiVersion}/models?key=${encodeURIComponent(key)}`;
 
-  const response = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: `Symptom: ${symptom}` }
-    ],
-    tools: [
-      {
-        type: "function",
-        function: {
-          name: "set_specialty",
-          description: "Return the medical specialty for the symptom.",
-          parameters: {
-            type: "object",
-            properties: {
-              specialty: { type: "string" }
-            },
-            required: ["specialty"],
-            additionalProperties: false
-          }
-        }
-      }
-    ],
-    tool_choice: { type: "function", function: { name: "set_specialty" } },
-    temperature: 0.2
-  });
-
-  const toolCall = response.choices?.[0]?.message?.tool_calls?.[0];
-  const args = toolCall?.function?.arguments;
-
-  if (!args) {
-    const err = new Error("Invalid AI response");
-    err.status = 502;
-    throw err;
-  }
-
-  let parsed;
   try {
-    parsed = JSON.parse(args);
-  } catch (error) {
-    const err = new Error("Invalid JSON from AI");
-    err.status = 502;
-    throw err;
-  }
+    const res = await fetch(url);
+    const data = await res.json();
+    if (!res.ok) return;
 
-  if (!parsed.specialty) {
-    const err = new Error("Missing specialty in AI response");
-    err.status = 502;
-    throw err;
+    const compatibles = (data.models || [])
+      .filter((m) => (m.supportedGenerationMethods || []).includes("generateContent"))
+      .map((m) => m.name);
+    
+    console.log(`\n🔍 Modelos disponibles en tu API KEY (${apiVersion}):`);
+    console.log(compatibles);
+    console.log("--------------------------------------------------");
+  } catch (e) {
+    // Ignoramos errores de red en el debug
   }
-
-  return String(parsed.specialty).trim().toLowerCase();
 }
 
-module.exports = { mapSymptomToSpecialty };
+async function mapSymptomToSpecialty(symptom) {
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is not set in .env");
+  }
+
+  // 1. Ejecutamos el debug para ver la lista real en tu terminal
+  await debugListModels("v1beta");
+
+  const prompt = `${systemPrompt}\n\nSíntoma del paciente: ${symptom}`;
+
+  // 2. Sistema de Fallback de tu agente
+  // Intentará flash primero, luego con el prefijo models/, y si todo falla, usará el robusto gemini-pro
+const preferredModels = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-3-flash-preview"];  let lastError;
+
+  for (const modelName of preferredModels) {
+    try {
+      console.log(`⏳ Intentando IA con el modelo: ${modelName}...`);
+      
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      let text = response.text();
+      
+      const cleanText = text.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(cleanText);
+
+      if (!parsed.specialty) throw new Error("El JSON no contiene 'specialty'");
+
+      console.log(`✅ ¡Éxito! El modelo ${modelName} respondió correctamente.\n`);
+      return String(parsed.specialty).trim().toLowerCase();
+
+    } catch (e) {
+      lastError = e;
+      console.error(`❌ El modelo ${modelName} falló:`, e.message);
+      // El ciclo continúa con el siguiente modelo de la lista
+    }
+  }
+
+  // 3. Si por alguna razón TODOS fallan, devolvemos un valor por defecto para no tumbar tu frontend
+  console.error("🔴 Todos los modelos fallaron. Último error:", lastError.message);
+  return "medicina general"; 
+}
+
+module.exports = { mapSymptomToSpecialty }; 
