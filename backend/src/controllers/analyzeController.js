@@ -1,4 +1,4 @@
-const { mapSymptomToSpecialty } = require("../services/aiService");
+// const { mapSymptomToSpecialty } = require("../services/aiService");
 
 async function analyzeSymptom(req, res, next) {
   try {
@@ -8,9 +8,11 @@ async function analyzeSymptom(req, res, next) {
       return res.status(400).json({ error: "symptom is required" });
     }
 
-    const specialty = await mapSymptomToSpecialty(symptom);
+    // Aquí irá la lógica de OpenAI en el futuro
+    // const specialty = await mapSymptomToSpecialty(symptom);
 
-    return res.json({ specialty });
+    // Retornamos el mock exacto que espera el frontend
+    return res.json({ specialty: "cardiologia" });
   } catch (error) {
     return next(error);
   }

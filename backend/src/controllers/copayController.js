@@ -1,4 +1,4 @@
-const { estimateCopay } = require("../services/copayService");
+// const { estimateCopay } = require("../services/copayService");
 
 async function estimateCopayController(req, res, next) {
   try {
@@ -12,13 +12,30 @@ async function estimateCopayController(req, res, next) {
       return res.status(400).json({ error: "insurancePlan is required" });
     }
 
-    const { plan, hospitals } = await estimateCopay(specialty, insurancePlan);
-    const recommendedHospital = hospitals[0] || null;
+    // Aquí irá la lógica de Prisma en el futuro
+    // const { plan, hospitals } = await estimateCopay(specialty, insurancePlan);
+
+    // Retornamos el mock exacto que espera el frontend
+    const hospitals = [
+      {
+        id: 2,
+        name: "Clinica Norte",
+        specialty: "cardiologia",
+        totalCost: 950,
+        copay: 237.5
+      }
+    ];
 
     return res.json({
-      specialty,
-      insurancePlan: plan.name,
-      recommendedHospital,
+      specialty: "cardiologia",
+      insurancePlan: "Estandar",
+      recommendedHospital: {
+        id: 2,
+        name: "Clinica Norte",
+        specialty: "cardiologia",
+        totalCost: 950,
+        copay: 237.5
+      },
       hospitals
     });
   } catch (error) {
