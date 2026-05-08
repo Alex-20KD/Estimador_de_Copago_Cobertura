@@ -9,6 +9,33 @@ function normalizeSpecialty(value) {
         .trim();
 }
 
+function normalizePlan(value) {
+    return String(value ?? "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+}
+
+function clampPercentage(value) {
+    return Math.min(100, Math.max(0, value));
+}
+
+function adjustCoverageByPlan(baseCoverage, insurancePlan) {
+    const plan = normalizePlan(insurancePlan);
+    const safeBaseCoverage = clampPercentage(Number(baseCoverage) || 0);
+
+    if (plan === "basico") {
+        return clampPercentage(safeBaseCoverage - 20);
+    }
+
+    if (plan === "premium") {
+        return 100;
+    }
+
+    return safeBaseCoverage;
+}
+
 async function fetchCostsBySpecialty(specialty) {
     return supabase
         .from('facilities')
@@ -26,7 +53,7 @@ async function fetchCostsBySpecialty(specialty) {
 
 async function analyzeSymptom(req, res) {
     try {
-        const { symptom } = req.body;
+        const { symptom, insurancePlan } = req.body;
 
         if (!symptom) {
             return res.status(400).json({ error: "El síntoma es requerido" });
@@ -55,14 +82,23 @@ async function analyzeSymptom(req, res) {
 
         const formattedResults = facilities.flatMap((facility) => {
             const costRows = Array.isArray(facility.costs) ? facility.costs : [];
-            return costRows.map((cost) => ({
-                hospital: facility.name ?? "Hospital no disponible",
-                location: facility.address ?? "Ubicación no disponible",
-                specialty: resolvedSpecialty,
-                original_price: Number(cost.consultation_price).toFixed(2),
-                insurance_coverage: `${cost.coverage_percentage}%`,
-                you_pay: (cost.consultation_price * (1 - (cost.coverage_percentage / 100))).toFixed(2)
-            }));
+            return costRows.map((cost) => {
+                const consultationPrice = Number(cost.consultation_price) || 0;
+                const adjustedCoverage = adjustCoverageByPlan(
+                    cost.coverage_percentage,
+                    insurancePlan
+                );
+                const finalCopay = consultationPrice * (1 - (adjustedCoverage / 100));
+
+                return {
+                    hospital: facility.name ?? "Hospital no disponible",
+                    location: facility.address ?? "Ubicación no disponible",
+                    specialty: resolvedSpecialty,
+                    original_price: consultationPrice.toFixed(2),
+                    insurance_coverage: `${adjustedCoverage.toFixed(2)}%`,
+                    you_pay: finalCopay.toFixed(2)
+                };
+            });
         });
 
         res.json({
