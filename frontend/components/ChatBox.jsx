@@ -149,13 +149,67 @@ export default function ChatBox() {
         className="max-h-[60vh] space-y-4 overflow-y-auto px-6 py-6"
         aria-live="polite"
       >
-        {messages.map((message, index) => (
-          <MessageBubble
-            key={`${message.role}-${index}`}
-            role={message.role}
-            content={message.content}
-          />
-        ))}
+        {messages.map((message, index) => {
+          const details =
+            message.role === "assistant" && typeof message.content === "string"
+              ? message.content.split("\n").reduce((acc, line) => {
+                  const [label, ...valueParts] = line.split(":");
+                  if (!label || valueParts.length === 0) {
+                    return acc;
+                  }
+                  acc[label.trim()] = valueParts.join(":").trim();
+                  return acc;
+                }, {})
+              : null;
+
+          const hasHospitalData = Boolean(
+            details?.Especialidad && details?.Hospital && details?.["Copago final"]
+          );
+
+          if (hasHospitalData) {
+            return (
+              <div
+                key={`${message.role}-${index}`}
+                className="fade-up flex justify-start"
+              >
+                <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-5 w-full max-w-md">
+                  <span className="bg-blue-50 text-blue-600 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
+                    {details.Especialidad}
+                  </span>
+
+                  <h3 className="text-xl font-extrabold text-slate-800 mt-3">
+                    {details.Hospital}
+                  </h3>
+
+                  <p className="text-sm text-slate-500 flex items-center gap-1 mt-1">
+                    <span aria-hidden="true">📍</span>
+                    <span>{details.Ubicacion ?? "N/A"}</span>
+                  </p>
+
+                  <div className="bg-slate-50 rounded-xl p-4 mt-4 border border-slate-100">
+                    <p className="text-slate-400 line-through text-sm">
+                      {details["Precio original"] ?? "N/A"}
+                    </p>
+                    <p className="text-4xl font-black text-emerald-500">
+                      {details["Copago final"]}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Tu copago con plan {plan}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <MessageBubble
+              key={`${message.role}-${index}`}
+              role={message.role}
+              content={message.content}
+            />
+          );
+        })}
         <div ref={endRef} />
       </div>
 
