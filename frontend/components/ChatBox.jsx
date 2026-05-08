@@ -22,34 +22,31 @@ const currencyFormatter = new Intl.NumberFormat("es-ES", {
   maximumFractionDigits: 2
 });
 
-function formatCurrency(value) {
-  if (typeof value !== "number" || Number.isNaN(value)) {
-    return "N/A";
+function formatCopay(value) {
+  if (typeof value === "number" && !Number.isNaN(value)) {
+    return currencyFormatter.format(value);
   }
 
-  return currencyFormatter.format(value);
+  if (typeof value === "string" && value.trim()) {
+    return value.trim();
+  }
+
+  return "N/A";
 }
 
 function buildResponse(payload) {
-  const specialty = payload?.specialty;
+  const results = Array.isArray(payload?.results) ? payload.results : [];
+  const first = results[0];
 
-  if (!specialty) {
-    return "No se pudo determinar la especialidad medica.";
-  }
-
-  const recommended = payload?.recommendedHospital;
-
-  if (!recommended) {
-    return [
-      `Especialidad: ${specialty}`,
-      "No hay hospitales disponibles para esa especialidad."
-    ].join("\n");
+  if (!payload?.success || !first) {
+    return "No se pudo obtener un resultado valido.";
   }
 
   return [
-    `Especialidad: ${specialty}`,
-    `Hospital recomendado: ${recommended.name}`,
-    `Copago estimado: ${formatCurrency(recommended.copay)}`
+    `Especialidad: ${first.specialty ?? "N/A"}`,
+    `Hospital: ${first.hospital ?? "N/A"}`,
+    `Ubicacion: ${first.location ?? "N/A"}`,
+    `Copago final: ${formatCopay(first.you_pay)}`
   ].join("\n");
 }
 
@@ -113,7 +110,7 @@ export default function ChatBox() {
           "Content-Type": "application/json",
           Accept: "application/json"
         },
-        body: JSON.stringify({ symptom: trimmed })
+        body: JSON.stringify({ symptom: trimmed, insurancePlan: plan })
       });
 
       if (!analyzeResponse.ok) {
@@ -121,28 +118,7 @@ export default function ChatBox() {
       }
 
       const analyzeData = await analyzeResponse.json();
-      if (!analyzeData?.specialty) {
-        throw new Error("Respuesta invalida del analisis");
-      }
-
-      const estimateResponse = await fetch(`${apiBaseUrl}/estimate-copay`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json"
-        },
-        body: JSON.stringify({
-          specialty: analyzeData.specialty,
-          insurancePlan: plan
-        })
-      });
-
-      if (!estimateResponse.ok) {
-        throw new Error(await parseError(estimateResponse));
-      }
-
-      const estimateData = await estimateResponse.json();
-      replaceLastMessage(buildResponse(estimateData));
+      replaceLastMessage(buildResponse(analyzeData));
     } catch (error) {
       const message = error?.message
         ? `No se pudo completar la estimacion: ${error.message}`
