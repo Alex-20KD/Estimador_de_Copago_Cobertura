@@ -1,74 +1,84 @@
-const OpenAI = require("openai");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const allowedSpecialties = new Set([
+  "medicina general",
+  "cardiologia",
+  "pediatria",
+  "traumatologia",
+  "psiquiatria",
+  "psicologia",
+  "gastroenterologia",
+  "dermatologia",
+  "otorrinolaringologia",
+  "ginecologia",
+]);
 
-const systemPrompt = [
-  "You map patient symptoms to a medical specialty.",
-  "Return only JSON via the provided function call.",
-  "Use Spanish specialty names in lowercase."
-].join(" ");
+const fallbackSpecialty = "medicina general";
+const emergencyCardioRegex = /\b(me muero|infarto|paro|paro cardiaco|taquicardia|taquicardias)\b/i;
+
+const systemPrompt = `
+  Eres un clasificador médico experto.
+  Debes devolver ÚNICAMENTE una especialidad válida en JSON estricto:
+  {"specialty":"<valor>"}
+  Solo puedes elegir una de estas opciones (minúsculas, sin tildes):
+  [medicina general, cardiologia, pediatria, traumatologia, psiquiatria, psicologia, gastroenterologia, dermatologia, otorrinolaringologia, ginecologia].
+  Regla de cardiologia: para dolores de corazon, pecho, presion alta, infartos, paros cardiacos, taquicardias y cualquier emergencia cardiovascular.
+  Si el usuario escribe "me muero", "infarto" o "paro", NO uses "urgencias": asigna segun el organo afectado (por ejemplo, cardiologia para emergencia cardiovascular).
+  No inventes especialidades fuera de esa lista.
+  Si no hay suficiente contexto clínico, elige "medicina general".
+`;
+
+function normalizeSpecialty(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
 
 async function mapSymptomToSpecialty(symptom) {
-  if (!process.env.OPENAI_API_KEY) {
-    const err = new Error("OPENAI_API_KEY is not set");
-    err.status = 500;
-    throw err;
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error("GEMINI_API_KEY is not set in .env");
   }
 
-  const response = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: `Symptom: ${symptom}` }
-    ],
-    tools: [
-      {
-        type: "function",
-        function: {
-          name: "set_specialty",
-          description: "Return the medical specialty for the symptom.",
-          parameters: {
-            type: "object",
-            properties: {
-              specialty: { type: "string" }
-            },
-            required: ["specialty"],
-            additionalProperties: false
-          }
+  if (emergencyCardioRegex.test(String(symptom ?? ""))) {
+    return "cardiologia";
+  }
+
+  const prompt = `${systemPrompt}\n\nSíntoma del paciente: ${symptom}`;
+
+  const preferredModels = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-pro-latest"];
+  let lastError;
+
+  for (const modelName of preferredModels) {
+    try {
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        generationConfig: {
+          temperature: 0,
+        },
+      });
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+
+      const cleanText = text.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(cleanText);
+
+      if (parsed.specialty) {
+        const normalizedSpecialty = normalizeSpecialty(parsed.specialty);
+        if (allowedSpecialties.has(normalizedSpecialty)) {
+          return normalizedSpecialty;
         }
       }
-    ],
-    tool_choice: { type: "function", function: { name: "set_specialty" } },
-    temperature: 0.2
-  });
-
-  const toolCall = response.choices?.[0]?.message?.tool_calls?.[0];
-  const args = toolCall?.function?.arguments;
-
-  if (!args) {
-    const err = new Error("Invalid AI response");
-    err.status = 502;
-    throw err;
+    } catch (e) {
+      lastError = e;
+    }
   }
 
-  let parsed;
-  try {
-    parsed = JSON.parse(args);
-  } catch (error) {
-    const err = new Error("Invalid JSON from AI");
-    err.status = 502;
-    throw err;
-  }
-
-  if (!parsed.specialty) {
-    const err = new Error("Missing specialty in AI response");
-    err.status = 502;
-    throw err;
-  }
-
-  return String(parsed.specialty).trim().toLowerCase();
+  console.error("🔴 Fallo total de IA:", lastError?.message);
+  return fallbackSpecialty;
 }
 
 module.exports = { mapSymptomToSpecialty };
