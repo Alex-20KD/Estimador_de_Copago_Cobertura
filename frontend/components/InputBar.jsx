@@ -2,31 +2,10 @@ export default function InputBar({
   value,
   onChange,
   onSubmit,
-  loading,
-  plan,
-  onPlanChange,
-  planOptions
+  loading
 }) {
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="rounded-2xl border border-black/10 bg-white/80 px-4 py-2 text-xs uppercase tracking-[0.2em] text-ink/60">
-          Plan de seguro
-        </label>
-        <select
-          className="min-w-[160px] rounded-2xl border border-black/10 bg-white/80 px-4 py-2 text-sm text-ink shadow-sm focus:outline-none focus:ring-2 focus:ring-teal/40"
-          value={plan}
-          onChange={(event) => onPlanChange(event.target.value)}
-          disabled={loading}
-        >
-          {planOptions.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      </div>
-
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
         <div className="flex w-full flex-1 items-center gap-3 rounded-2xl border border-black/10 bg-white/90 px-4 py-3 shadow-sm focus-within:ring-2 focus-within:ring-teal/40">
           <input
