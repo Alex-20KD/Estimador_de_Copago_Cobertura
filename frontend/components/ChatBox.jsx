@@ -34,24 +34,11 @@ function formatCopay(value) {
   return "N/A";
 }
 
-function buildResponse(payload) {
-  const results = Array.isArray(payload?.results) ? payload.results : [];
-  const first = results[0];
-
-  if (!payload?.success || !first) {
-    return "No se pudo obtener un resultado valido.";
-  }
-
-  return [
-    `Especialidad: ${first.specialty ?? "N/A"}`,
-    `Hospital: ${first.hospital ?? "N/A"}`,
-    `Ubicacion: ${first.location ?? "N/A"}`,
-    `Copago final: ${formatCopay(first.you_pay)}`
-  ].join("\n");
-}
-
 async function parseError(response) {
   const data = await response.json().catch(() => null);
+  if (data?.botReply) {
+    return data.botReply;
+  }
   if (data?.error) {
     return data.error;
   }
@@ -70,7 +57,7 @@ export default function ChatBox() {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  const replaceLastMessage = (content) => {
+  const replaceLastMessage = ({ content, hospitalData = null }) => {
     setMessages((prev) => {
       if (prev.length === 0) {
         return prev;
@@ -78,7 +65,7 @@ export default function ChatBox() {
 
       const updated = [...prev];
       // Replace the "Pensando..." bubble with the final response.
-      updated[updated.length - 1] = { role: "assistant", content };
+      updated[updated.length - 1] = { role: "assistant", content, hospitalData };
       return updated;
     });
   };
@@ -118,12 +105,18 @@ export default function ChatBox() {
       }
 
       const analyzeData = await analyzeResponse.json();
-      replaceLastMessage(buildResponse(analyzeData));
+      replaceLastMessage({
+        content:
+          typeof analyzeData?.botReply === "string" && analyzeData.botReply.trim()
+            ? analyzeData.botReply.trim()
+            : "No se pudo obtener una respuesta válida.",
+        hospitalData: analyzeData?.hospitalData ?? null
+      });
     } catch (error) {
       const message = error?.message
         ? `No se pudo completar la estimacion: ${error.message}`
         : "No se pudo completar la estimacion.";
-      replaceLastMessage(message);
+      replaceLastMessage({ content: message });
     } finally {
       setLoading(false);
     }
@@ -150,64 +143,45 @@ export default function ChatBox() {
         aria-live="polite"
       >
         {messages.map((message, index) => {
-          const details =
-            message.role === "assistant" && typeof message.content === "string"
-              ? message.content.split("\n").reduce((acc, line) => {
-                  const [label, ...valueParts] = line.split(":");
-                  if (!label || valueParts.length === 0) {
-                    return acc;
-                  }
-                  acc[label.trim()] = valueParts.join(":").trim();
-                  return acc;
-                }, {})
+          const hospitalData =
+            message.role === "assistant" && message.hospitalData
+              ? message.hospitalData
               : null;
 
-          const hasHospitalData = Boolean(
-            details?.Especialidad && details?.Hospital && details?.["Copago final"]
-          );
+          return (
+            <div key={`${message.role}-${index}`} className="space-y-3">
+              <MessageBubble role={message.role} content={message.content} />
+              {hospitalData ? (
+                <div className="fade-up flex justify-start">
+                  <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-5 w-full max-w-md">
+                    <span className="bg-blue-50 text-blue-600 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
+                      {hospitalData.specialty ?? "N/A"}
+                    </span>
 
-          if (hasHospitalData) {
-            return (
-              <div
-                key={`${message.role}-${index}`}
-                className="fade-up flex justify-start"
-              >
-                <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-5 w-full max-w-md">
-                  <span className="bg-blue-50 text-blue-600 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
-                    {details.Especialidad}
-                  </span>
+                    <h3 className="text-xl font-extrabold text-slate-800 mt-3">
+                      {hospitalData.hospital ?? "N/A"}
+                    </h3>
 
-                  <h3 className="text-xl font-extrabold text-slate-800 mt-3">
-                    {details.Hospital}
-                  </h3>
-
-                  <p className="text-sm text-slate-500 flex items-center gap-1 mt-1">
-                    <span aria-hidden="true">📍</span>
-                    <span>{details.Ubicacion ?? "N/A"}</span>
-                  </p>
-
-                  <div className="bg-slate-50 rounded-xl p-4 mt-4 border border-slate-100">
-                    <p className="text-slate-400 line-through text-sm">
-                      {details["Precio original"] ?? "N/A"}
+                    <p className="text-sm text-slate-500 flex items-center gap-1 mt-1">
+                      <span aria-hidden="true">📍</span>
+                      <span>{hospitalData.location ?? "N/A"}</span>
                     </p>
-                    <p className="text-4xl font-black text-emerald-500">
-                      {details["Copago final"]}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      Tu copago con plan {plan}
-                    </p>
+
+                    <div className="bg-slate-50 rounded-xl p-4 mt-4 border border-slate-100">
+                      <p className="text-slate-400 line-through text-sm">
+                        {formatCopay(hospitalData.original_price)}
+                      </p>
+                      <p className="text-4xl font-black text-emerald-500">
+                        {formatCopay(hospitalData.you_pay)}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Tu copago con plan {plan}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          }
-
-          return (
-            <MessageBubble
-              key={`${message.role}-${index}`}
-              role={message.role}
-              content={message.content}
-            />
+              ) : null}
+            </div>
           );
         })}
         <div ref={endRef} />

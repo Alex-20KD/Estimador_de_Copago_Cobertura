@@ -1,13 +1,9 @@
-const { mapSymptomToSpecialty } = require('../services/aiService');
+const {
+    generateMedicalAssistantReply,
+    normalizeSpecialty,
+    allowedSpecialties
+} = require('../services/aiService');
 const supabase = require('../db/supabase');
-
-function normalizeSpecialty(value) {
-    return String(value ?? "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .trim();
-}
 
 function normalizePlan(value) {
     return String(value ?? "")
@@ -56,31 +52,52 @@ async function analyzeSymptom(req, res) {
         const { symptom, insurancePlan } = req.body;
 
         if (!symptom) {
-            return res.status(400).json({ error: "El síntoma es requerido" });
-        }
-
-        const suggestedSpecialty = normalizeSpecialty(await mapSymptomToSpecialty(symptom)) || "medicina general";
-        let resolvedSpecialty = suggestedSpecialty;
-
-        let { data: facilities, error } = await fetchCostsBySpecialty(resolvedSpecialty);
-        if (error) throw error;
-
-        if (!facilities || facilities.length === 0) {
-            resolvedSpecialty = "medicina general";
-            const fallbackResult = await fetchCostsBySpecialty(resolvedSpecialty);
-            if (fallbackResult.error) throw fallbackResult.error;
-            facilities = fallbackResult.data;
-        }
-
-        if (!facilities || facilities.length === 0) {
-            return res.json({
-                success: true,
-                specialty: resolvedSpecialty,
-                results: []
+            return res.status(400).json({
+                botReply: "Por favor, cuéntame tu síntoma para poder ayudarte.",
+                hospitalData: null
             });
         }
 
-        const formattedResults = facilities.flatMap((facility) => {
+        const geminiRawReply = await generateMedicalAssistantReply(symptom);
+        const cleanedGeminiReply = String(geminiRawReply ?? "").replace(/```json|```/gi, "").trim();
+
+        let parsed;
+        try {
+            parsed = JSON.parse(cleanedGeminiReply);
+        } catch (parseError) {
+            return res.status(502).json({
+                botReply: "No pude procesar tu mensaje en este momento. Intenta nuevamente, por favor.",
+                hospitalData: null
+            });
+        }
+
+        const reply = typeof parsed?.reply === "string" && parsed.reply.trim()
+            ? parsed.reply.trim()
+            : "Gracias por escribir. ¿Puedes contarme un poco más para orientarte mejor?";
+
+        const requiresHospital = parsed?.requires_hospital === true;
+        const normalizedSpecialty = parsed?.specialty == null
+            ? null
+            : normalizeSpecialty(parsed.specialty);
+
+        if (requiresHospital && (!normalizedSpecialty || !allowedSpecialties.has(normalizedSpecialty))) {
+            return res.status(502).json({
+                botReply: "No pude identificar la especialidad médica correctamente. Intenta describir tu síntoma con más detalle.",
+                hospitalData: null
+            });
+        }
+
+        if (!requiresHospital) {
+            return res.json({
+                botReply: reply,
+                hospitalData: null
+            });
+        }
+
+        let { data: facilities, error } = await fetchCostsBySpecialty(normalizedSpecialty);
+        if (error) throw error;
+
+        const formattedResults = (Array.isArray(facilities) ? facilities : []).flatMap((facility) => {
             const costRows = Array.isArray(facility.costs) ? facility.costs : [];
             return costRows.map((cost) => {
                 const consultationPrice = Number(cost.consultation_price) || 0;
@@ -93,7 +110,7 @@ async function analyzeSymptom(req, res) {
                 return {
                     hospital: facility.name ?? "Hospital no disponible",
                     location: facility.address ?? "Ubicación no disponible",
-                    specialty: resolvedSpecialty,
+                    specialty: normalizedSpecialty,
                     original_price: consultationPrice.toFixed(2),
                     insurance_coverage: `${adjustedCoverage.toFixed(2)}%`,
                     you_pay: finalCopay.toFixed(2)
@@ -101,16 +118,15 @@ async function analyzeSymptom(req, res) {
             });
         });
 
-        res.json({
-            success: true,
-            count: formattedResults.length,
-            results: formattedResults
+        return res.json({
+            botReply: reply,
+            hospitalData: formattedResults[0] ?? null
         });
 
     } catch (error) {
-        res.status(502).json({ 
-            success: false, 
-            error: "Error interno en el procesamiento médico" 
+        res.status(502).json({
+            botReply: "Tuvimos un inconveniente procesando tu consulta. Intenta nuevamente en unos minutos.",
+            hospitalData: null
         });
     }
 }
