@@ -1,39 +1,30 @@
-const { mapSymptomToSpecialty } = require('../services/aiService');
+const {
+    generateMedicalAssistantReply,
+    normalizeSpecialty,
+    allowedSpecialties
+} = require('../services/aiService');
 const supabase = require('../db/supabase');
-
-function normalizeSpecialty(value) {
-    return String(value ?? "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .trim();
-}
-
-function normalizePlan(value) {
-    return String(value ?? "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .toLowerCase()
-        .trim();
-}
 
 function clampPercentage(value) {
     return Math.min(100, Math.max(0, value));
 }
 
-function adjustCoverageByPlan(baseCoverage, insurancePlan) {
-    const plan = normalizePlan(insurancePlan);
-    const safeBaseCoverage = clampPercentage(Number(baseCoverage) || 0);
+function calculateCopays(consultationPrice, baseCoveragePercentage) {
+    const safePrice = Number(consultationPrice) || 0;
+    const baseCoverage = clampPercentage(Number(baseCoveragePercentage) || 0);
+    const basicoCoverage = clampPercentage(baseCoverage - 20);
+    const estandarCoverage = baseCoverage;
+    const premiumCoverage = 100;
 
-    if (plan === "basico") {
-        return clampPercentage(safeBaseCoverage - 20);
-    }
+    const copayBasico = safePrice * (1 - (basicoCoverage / 100));
+    const copayEstandar = safePrice * (1 - (estandarCoverage / 100));
+    const copayPremium = safePrice * (1 - (premiumCoverage / 100));
 
-    if (plan === "premium") {
-        return 100;
-    }
-
-    return safeBaseCoverage;
+    return {
+        basico: copayBasico.toFixed(2),
+        estandar: copayEstandar.toFixed(2),
+        premium: copayPremium.toFixed(2)
+    };
 }
 
 async function fetchCostsBySpecialty(specialty) {
@@ -53,64 +44,79 @@ async function fetchCostsBySpecialty(specialty) {
 
 async function analyzeSymptom(req, res) {
     try {
-        const { symptom, insurancePlan } = req.body;
+        const rawMessage = req.body?.message ?? req.body?.symptom;
+        const symptom = typeof rawMessage === "string" ? rawMessage.trim() : "";
 
-        if (!symptom) {
-            return res.status(400).json({ error: "El síntoma es requerido" });
-        }
-
-        const suggestedSpecialty = normalizeSpecialty(await mapSymptomToSpecialty(symptom)) || "medicina general";
-        let resolvedSpecialty = suggestedSpecialty;
-
-        let { data: facilities, error } = await fetchCostsBySpecialty(resolvedSpecialty);
-        if (error) throw error;
-
-        if (!facilities || facilities.length === 0) {
-            resolvedSpecialty = "medicina general";
-            const fallbackResult = await fetchCostsBySpecialty(resolvedSpecialty);
-            if (fallbackResult.error) throw fallbackResult.error;
-            facilities = fallbackResult.data;
-        }
-
-        if (!facilities || facilities.length === 0) {
-            return res.json({
-                success: true,
-                specialty: resolvedSpecialty,
-                results: []
+        if (!symptom || symptom.length > 300) {
+            return res.status(400).json({
+                error: "El mensaje excede el límite de caracteres permitido o está vacío."
             });
         }
 
-        const formattedResults = facilities.flatMap((facility) => {
+        const geminiRawReply = await generateMedicalAssistantReply(symptom);
+        const cleanedGeminiReply = String(geminiRawReply ?? "").replace(/```json|```/gi, "").trim();
+
+        let parsed;
+        try {
+            parsed = JSON.parse(cleanedGeminiReply);
+        } catch (parseError) {
+            return res.status(502).json({
+                botReply: "No pude procesar tu mensaje en este momento. Intenta nuevamente, por favor.",
+                hospitalData: null
+            });
+        }
+
+        const reply = typeof parsed?.reply === "string" && parsed.reply.trim()
+            ? parsed.reply.trim()
+            : "Gracias por escribir. ¿Puedes contarme un poco más para orientarte mejor?";
+
+        const requiresHospital = parsed?.requires_hospital === true;
+        const normalizedSpecialty = parsed?.specialty == null
+            ? null
+            : normalizeSpecialty(parsed.specialty);
+
+        if (requiresHospital && (!normalizedSpecialty || !allowedSpecialties.has(normalizedSpecialty))) {
+            return res.status(502).json({
+                botReply: "No pude identificar la especialidad médica correctamente. Intenta describir tu síntoma con más detalle.",
+                hospitalData: null
+            });
+        }
+
+        if (!requiresHospital) {
+            return res.json({
+                botReply: reply,
+                hospitalData: null
+            });
+        }
+
+        let { data: facilities, error } = await fetchCostsBySpecialty(normalizedSpecialty);
+        if (error) throw error;
+
+        const formattedResults = (Array.isArray(facilities) ? facilities : []).flatMap((facility) => {
             const costRows = Array.isArray(facility.costs) ? facility.costs : [];
             return costRows.map((cost) => {
                 const consultationPrice = Number(cost.consultation_price) || 0;
-                const adjustedCoverage = adjustCoverageByPlan(
-                    cost.coverage_percentage,
-                    insurancePlan
-                );
-                const finalCopay = consultationPrice * (1 - (adjustedCoverage / 100));
+                const copays = calculateCopays(consultationPrice, cost.coverage_percentage);
 
                 return {
                     hospital: facility.name ?? "Hospital no disponible",
                     location: facility.address ?? "Ubicación no disponible",
-                    specialty: resolvedSpecialty,
+                    specialty: normalizedSpecialty,
                     original_price: consultationPrice.toFixed(2),
-                    insurance_coverage: `${adjustedCoverage.toFixed(2)}%`,
-                    you_pay: finalCopay.toFixed(2)
+                    copays
                 };
             });
         });
 
-        res.json({
-            success: true,
-            count: formattedResults.length,
-            results: formattedResults
+        return res.json({
+            botReply: reply,
+            hospitalData: formattedResults[0] ?? null
         });
 
     } catch (error) {
-        res.status(502).json({ 
-            success: false, 
-            error: "Error interno en el procesamiento médico" 
+        res.status(502).json({
+            botReply: "Tuvimos un inconveniente procesando tu consulta. Intenta nuevamente en unos minutos.",
+            hospitalData: null
         });
     }
 }

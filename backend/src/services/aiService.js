@@ -12,21 +12,30 @@ const allowedSpecialties = new Set([
   "dermatologia",
   "otorrinolaringologia",
   "ginecologia",
+  "oncologia",
+  "hematologia",
+  "cirugia",
+  "neurologia",
 ]);
 
-const fallbackSpecialty = "medicina general";
-const emergencyCardioRegex = /\b(me muero|infarto|paro|paro cardiaco|taquicardia|taquicardias)\b/i;
-
 const systemPrompt = `
-  Eres un clasificador médico experto.
-  Debes devolver ÚNICAMENTE una especialidad válida en JSON estricto:
-  {"specialty":"<valor>"}
-  Solo puedes elegir una de estas opciones (minúsculas, sin tildes):
-  [medicina general, cardiologia, pediatria, traumatologia, psiquiatria, psicologia, gastroenterologia, dermatologia, otorrinolaringologia, ginecologia].
-  Regla de cardiologia: para dolores de corazon, pecho, presion alta, infartos, paros cardiacos, taquicardias y cualquier emergencia cardiovascular.
-  Si el usuario escribe "me muero", "infarto" o "paro", NO uses "urgencias": asigna segun el organo afectado (por ejemplo, cardiologia para emergencia cardiovascular).
-  No inventes especialidades fuera de esa lista.
-  Si no hay suficiente contexto clínico, elige "medicina general".
+Eres un asistente médico amigable, empático y profesional.
+Debes responder SIEMPRE en JSON puro válido (sin markdown, sin backticks y sin texto adicional), con esta estructura exacta:
+{
+  "reply": "Tu respuesta en lenguaje natural y empático para el usuario.",
+  "requires_hospital": boolean,
+  "specialty": "nombre_de_la_especialidad" | null
+}
+
+Reglas obligatorias:
+1) Si el mensaje del usuario es saludo, charla casual o conversación no clínica, responde con:
+   - "requires_hospital": false
+   - "specialty": null
+2) Si el usuario menciona síntomas, dolor, accidente, malestar o necesidad de atención médica, responde con:
+   - "requires_hospital": true
+   - "specialty": Solo puedes elegir estrictamente una de estas especialidades: traumatologia, cardiologia, pediatria, psiquiatria, psicologia, gastroenterologia, dermatologia, otorrinolaringologia, ginecologia, medicina general, oncologia, hematologia, cirugia, neurologia. El valor de "specialty" debe ir siempre en minusculas y estrictamente sin tildes (por ejemplo: cirugia, gastroenterologia, pediatria). Si no detectas ninguna, el valor debe ser null.
+3) No inventes especialidades fuera de la lista.
+4) Si hay duda clínica, usa "medicina general".
 `;
 
 function normalizeSpecialty(value) {
@@ -37,16 +46,12 @@ function normalizeSpecialty(value) {
     .trim();
 }
 
-async function mapSymptomToSpecialty(symptom) {
+async function generateMedicalAssistantReply(userMessage) {
   if (!process.env.GEMINI_API_KEY) {
     throw new Error("GEMINI_API_KEY is not set in .env");
   }
 
-  if (emergencyCardioRegex.test(String(symptom ?? ""))) {
-    return "cardiologia";
-  }
-
-  const prompt = `${systemPrompt}\n\nSíntoma del paciente: ${symptom}`;
+  const prompt = `${systemPrompt}\n\nMensaje del usuario: ${userMessage}`;
 
   const preferredModels = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-pro-latest"];
   let lastError;
@@ -61,24 +66,18 @@ async function mapSymptomToSpecialty(symptom) {
       });
       const result = await model.generateContent(prompt);
       const response = await result.response;
-      const text = response.text();
-
-      const cleanText = text.replace(/```json|```/g, "").trim();
-      const parsed = JSON.parse(cleanText);
-
-      if (parsed.specialty) {
-        const normalizedSpecialty = normalizeSpecialty(parsed.specialty);
-        if (allowedSpecialties.has(normalizedSpecialty)) {
-          return normalizedSpecialty;
-        }
-      }
+      return response.text().trim();
     } catch (e) {
       lastError = e;
     }
   }
 
   console.error("🔴 Fallo total de IA:", lastError?.message);
-  return fallbackSpecialty;
+  throw new Error("No se pudo obtener respuesta de Gemini");
 }
 
-module.exports = { mapSymptomToSpecialty };
+module.exports = {
+  generateMedicalAssistantReply,
+  normalizeSpecialty,
+  allowedSpecialties,
+};

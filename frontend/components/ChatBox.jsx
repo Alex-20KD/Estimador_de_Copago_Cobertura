@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import InputBar from "./InputBar";
 import MessageBubble from "./MessageBubble";
 
-const planOptions = ["Basico", "Estandar", "Premium"];
 const apiBaseUrl =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
 
@@ -34,24 +33,11 @@ function formatCopay(value) {
   return "N/A";
 }
 
-function buildResponse(payload) {
-  const results = Array.isArray(payload?.results) ? payload.results : [];
-  const first = results[0];
-
-  if (!payload?.success || !first) {
-    return "No se pudo obtener un resultado valido.";
-  }
-
-  return [
-    `Especialidad: ${first.specialty ?? "N/A"}`,
-    `Hospital: ${first.hospital ?? "N/A"}`,
-    `Ubicacion: ${first.location ?? "N/A"}`,
-    `Copago final: ${formatCopay(first.you_pay)}`
-  ].join("\n");
-}
-
 async function parseError(response) {
   const data = await response.json().catch(() => null);
+  if (data?.botReply) {
+    return data.botReply;
+  }
   if (data?.error) {
     return data.error;
   }
@@ -62,7 +48,6 @@ async function parseError(response) {
 export default function ChatBox() {
   const [messages, setMessages] = useState(starterMessages);
   const [input, setInput] = useState("");
-  const [plan, setPlan] = useState(planOptions[1]);
   const [loading, setLoading] = useState(false);
   const endRef = useRef(null);
 
@@ -70,7 +55,7 @@ export default function ChatBox() {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  const replaceLastMessage = (content) => {
+  const replaceLastMessage = ({ content, hospitalData = null }) => {
     setMessages((prev) => {
       if (prev.length === 0) {
         return prev;
@@ -78,9 +63,22 @@ export default function ChatBox() {
 
       const updated = [...prev];
       // Replace the "Pensando..." bubble with the final response.
-      updated[updated.length - 1] = { role: "assistant", content };
+      updated[updated.length - 1] = {
+        role: "assistant",
+        content,
+        hospitalData,
+        selectedPlan: null
+      };
       return updated;
     });
+  };
+
+  const selectPlanForMessage = (messageIndex, plan) => {
+    setMessages((prev) =>
+      prev.map((message, index) =>
+        index === messageIndex ? { ...message, selectedPlan: plan } : message
+      )
+    );
   };
 
   const handleSubmit = async (event) => {
@@ -110,7 +108,7 @@ export default function ChatBox() {
           "Content-Type": "application/json",
           Accept: "application/json"
         },
-        body: JSON.stringify({ symptom: trimmed, insurancePlan: plan })
+        body: JSON.stringify({ symptom: trimmed })
       });
 
       if (!analyzeResponse.ok) {
@@ -118,12 +116,18 @@ export default function ChatBox() {
       }
 
       const analyzeData = await analyzeResponse.json();
-      replaceLastMessage(buildResponse(analyzeData));
+      replaceLastMessage({
+        content:
+          typeof analyzeData?.botReply === "string" && analyzeData.botReply.trim()
+            ? analyzeData.botReply.trim()
+            : "No se pudo obtener una respuesta válida.",
+        hospitalData: analyzeData?.hospitalData ?? null
+      });
     } catch (error) {
       const message = error?.message
         ? `No se pudo completar la estimacion: ${error.message}`
         : "No se pudo completar la estimacion.";
-      replaceLastMessage(message);
+      replaceLastMessage({ content: message });
     } finally {
       setLoading(false);
     }
@@ -141,7 +145,7 @@ export default function ChatBox() {
           </h2>
         </div>
         <div className="rounded-full bg-ink px-4 py-2 text-xs uppercase tracking-[0.2em] text-white">
-          Plan: {plan}
+          Comparador de planes
         </div>
       </div>
 
@@ -150,64 +154,80 @@ export default function ChatBox() {
         aria-live="polite"
       >
         {messages.map((message, index) => {
-          const details =
-            message.role === "assistant" && typeof message.content === "string"
-              ? message.content.split("\n").reduce((acc, line) => {
-                  const [label, ...valueParts] = line.split(":");
-                  if (!label || valueParts.length === 0) {
-                    return acc;
-                  }
-                  acc[label.trim()] = valueParts.join(":").trim();
-                  return acc;
-                }, {})
+          const hospitalData =
+            message.role === "assistant" && message.hospitalData
+              ? message.hospitalData
               : null;
-
-          const hasHospitalData = Boolean(
-            details?.Especialidad && details?.Hospital && details?.["Copago final"]
-          );
-
-          if (hasHospitalData) {
-            return (
-              <div
-                key={`${message.role}-${index}`}
-                className="fade-up flex justify-start"
-              >
-                <div className="bg-white rounded-2xl shadow-lg border border-slate-100 p-5 w-full max-w-md">
-                  <span className="bg-blue-50 text-blue-600 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">
-                    {details.Especialidad}
-                  </span>
-
-                  <h3 className="text-xl font-extrabold text-slate-800 mt-3">
-                    {details.Hospital}
-                  </h3>
-
-                  <p className="text-sm text-slate-500 flex items-center gap-1 mt-1">
-                    <span aria-hidden="true">📍</span>
-                    <span>{details.Ubicacion ?? "N/A"}</span>
-                  </p>
-
-                  <div className="bg-slate-50 rounded-xl p-4 mt-4 border border-slate-100">
-                    <p className="text-slate-400 line-through text-sm">
-                      {details["Precio original"] ?? "N/A"}
-                    </p>
-                    <p className="text-4xl font-black text-emerald-500">
-                      {details["Copago final"]}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      Tu copago con plan {plan}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            );
-          }
+          const selectedPlan = message?.selectedPlan ?? null;
+          const planCards = [
+            {
+              key: "basico",
+              title: "PLAN BÁSICO",
+              copay: hospitalData?.copays?.basico
+            },
+            {
+              key: "estandar",
+              title: "PLAN ESTÁNDAR",
+              copay: hospitalData?.copays?.estandar
+            },
+            {
+              key: "premium",
+              title: "PLAN PREMIUM",
+              copay: hospitalData?.copays?.premium
+            }
+          ];
 
           return (
-            <MessageBubble
-              key={`${message.role}-${index}`}
-              role={message.role}
-              content={message.content}
-            />
+            <div key={`${message.role}-${index}`} className="space-y-3">
+              <MessageBubble role={message.role} content={message.content} />
+              {hospitalData ? (
+                <div className="fade-up w-full">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                    {planCards.map((plan) => {
+                      const isSelected = selectedPlan === plan.key;
+                      const cardClasses = isSelected
+                        ? "border-blue-500 bg-blue-50"
+                        : "border-slate-200 bg-white";
+
+                      return (
+                        <div
+                          key={plan.key}
+                          onClick={() => selectPlanForMessage(index, plan.key)}
+                          className={`rounded-2xl shadow-sm border p-5 flex flex-col h-full cursor-pointer transition-all duration-200 hover:border-blue-400 hover:bg-blue-50/40 hover:shadow-md ${cardClasses}`}
+                        >
+                          <p
+                            className={`text-xs font-bold tracking-widest uppercase mb-4 border-b pb-2 text-center ${
+                              isSelected ? "text-blue-600" : "text-slate-500"
+                            }`}
+                          >
+                            {plan.title}
+                          </p>
+                          <span className="bg-blue-50 text-blue-600 text-[10px] font-bold px-2 py-1 rounded-full w-max mb-3">
+                            {hospitalData.specialty ?? "N/A"}
+                          </span>
+                          <h3 className="text-lg font-bold text-slate-800 leading-tight">
+                            {hospitalData.hospital ?? "N/A"}
+                          </h3>
+                          <p className="text-xs text-slate-500 mt-1 mb-4 flex items-center gap-1">
+                            <span aria-hidden="true">📍</span>
+                            <span>{hospitalData.location ?? "N/A"}</span>
+                          </p>
+                          <div className="flex-grow" />
+                          <p className="text-4xl font-black text-emerald-500 text-center">
+                            {formatCopay(plan.copay)}
+                          </p>
+                          {plan.key === "premium" ? (
+                            <p className="text-xs text-blue-600 font-semibold text-center mt-2">
+                              Mejor Cobertura
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           );
         })}
         <div ref={endRef} />
@@ -219,9 +239,6 @@ export default function ChatBox() {
           onChange={setInput}
           onSubmit={handleSubmit}
           loading={loading}
-          plan={plan}
-          onPlanChange={setPlan}
-          planOptions={planOptions}
         />
       </div>
     </div>
