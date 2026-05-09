@@ -44,12 +44,12 @@ async function fetchCostsBySpecialty(specialty) {
 
 async function analyzeSymptom(req, res) {
     try {
-        const { symptom } = req.body;
+        const rawMessage = req.body?.message ?? req.body?.symptom;
+        const symptom = typeof rawMessage === "string" ? rawMessage.trim() : "";
 
-        if (!symptom) {
+        if (!symptom || symptom.length > 300) {
             return res.status(400).json({
-                botReply: "Por favor, cuéntame tu síntoma para poder ayudarte.",
-                hospitalData: null
+                error: "El mensaje excede el límite de caracteres permitido o está vacío."
             });
         }
 

@@ -4,6 +4,8 @@ export default function InputBar({
   onSubmit,
   loading
 }) {
+  const maxLength = 250;
+
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
@@ -15,6 +17,7 @@ export default function InputBar({
             value={value}
             onChange={(event) => onChange(event.target.value)}
             disabled={loading}
+            maxLength={maxLength}
           />
           <button
             type="submit"
@@ -26,6 +29,7 @@ export default function InputBar({
         </div>
         <p className="text-xs text-ink/50">Enter para enviar</p>
       </div>
+      <p className="text-xs text-slate-400">{value.length}/{maxLength}</p>
     </form>
   );
 }

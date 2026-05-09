@@ -12,6 +12,10 @@ const allowedSpecialties = new Set([
   "dermatologia",
   "otorrinolaringologia",
   "ginecologia",
+  "oncologia",
+  "hematologia",
+  "cirugia",
+  "neurologia",
 ]);
 
 const systemPrompt = `
@@ -29,8 +33,7 @@ Reglas obligatorias:
    - "specialty": null
 2) Si el usuario menciona síntomas, dolor, accidente, malestar o necesidad de atención médica, responde con:
    - "requires_hospital": true
-   - "specialty": una sola opción estricta de esta lista exacta (minúsculas y sin tildes):
-     traumatologia, cardiologia, pediatria, psiquiatria, psicologia, gastroenterologia, dermatologia, otorrinolaringologia, ginecologia, medicina general
+   - "specialty": Solo puedes elegir estrictamente una de estas especialidades: traumatologia, cardiologia, pediatria, psiquiatria, psicologia, gastroenterologia, dermatologia, otorrinolaringologia, ginecologia, medicina general, oncologia, hematologia, cirugia, neurologia. El valor de "specialty" debe ir siempre en minusculas y estrictamente sin tildes (por ejemplo: cirugia, gastroenterologia, pediatria). Si no detectas ninguna, el valor debe ser null.
 3) No inventes especialidades fuera de la lista.
 4) Si hay duda clínica, usa "medicina general".
 `;
