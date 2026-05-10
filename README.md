@@ -6,6 +6,16 @@ VIACOPAGO es una plataforma full-stack creada para la **HackIAthon de Viamática
 
 ---
 
+---
+
+## 📸 Vista Previa del Agente
+
+| Landing Page Principal | Interfaz de Chat con IA |
+| :---: | :---: |
+| ![Landing Page](./frontend/public/screenshot-landing.png) | ![Chat Area](./frontend/public/screenshot-chat.png) |
+
+---
+
 ## 🚨 Problema y solución
 
 | Problema | Solución con VIACOPAGO |
