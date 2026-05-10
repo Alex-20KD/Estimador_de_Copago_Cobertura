@@ -1,5 +1,7 @@
 "use client";
 
+import Image from "next/image";
+import Link from "next/link";
 import ChatBox from "../../components/ChatBox";
 
 export default function ChatPage() {
@@ -21,6 +23,12 @@ export default function ChatPage() {
             <p className="text-sm text-emerald-50 mt-2">
               Consulta guiada para estimar copagos y cobertura hospitalaria.
             </p>
+            <Link
+              href="/"
+              className="mt-4 inline-flex w-fit items-center rounded-full bg-amber-400 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-emerald-900 transition hover:bg-amber-500"
+            >
+              ← Volver al inicio
+            </Link>
           </div>
 
           {/* GUÍA DE PROCESO (Tarjetas de Pasos) */}
@@ -73,9 +81,21 @@ export default function ChatPage() {
             </div>
           </div>
 
+          <div className="mt-6 rounded-2xl bg-emerald-600/40 p-4">
+            <div className="relative mx-auto h-48 w-full max-w-[280px] animate-float">
+              <Image
+                src="/chatbot.png"
+                alt="Chatbot ViaCopago"
+                fill
+                className="object-contain drop-shadow-[0_10px_18px_rgba(0,0,0,0.2)]"
+                priority
+              />
+            </div>
+          </div>
+
           {/* Decoración sutil de fondo para la sidebar */}
-          <div className="mt-auto pt-6 text-center opacity-20">
-             <span className="text-6xl font-black italic">VIA-MED</span>
+          <div className="mt-auto pt-4 text-center opacity-20">
+            <span className="text-6xl font-black italic">VIA-MED</span>
           </div>
         </aside>
 

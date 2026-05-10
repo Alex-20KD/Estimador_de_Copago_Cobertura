@@ -42,13 +42,7 @@ export default function LandingPage() {
                 className="rounded-2xl bg-amber-400 px-10 py-4 text-lg font-black text-slate-900 transition-all hover:bg-amber-500 hover:scale-105 shadow-[0_8px_0_0_rgba(217,119,6,1)] active:shadow-none active:translate-y-1"
               >
                 Comenzar simulación →
-              </Link>
-              <button
-                type="button"
-                className="rounded-2xl border-2 border-emerald-200 bg-white px-10 py-4 text-lg font-bold text-emerald-700 transition hover:bg-emerald-50"
-              >
-                Ver demo
-              </button>
+              </Link> 
             </div>
 
             {/* Stats Rápidos */}
